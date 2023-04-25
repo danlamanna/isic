@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 
 from django.forms.models import ModelForm
 from isic_metadata.metadata import MetadataRow
@@ -22,27 +22,39 @@ class Problem(BaseModel):
     type: str | None = "error"
 
 
+# represent a way of accessing a field in a dataframe that maps to a field in the database
+Lookup = namedtuple("Lookup", ["field", "db_field", "query_expr"])
+
+
 def validate_csv_format_and_filenames(df, cohort):
     problems = []
 
     # TODO: duplicate columns
 
-    if "filename" not in df.columns:
-        problems.append(Problem(message="Unable to find a filename column in CSV."))
+    if "isic_id" in df.columns and "filename" in df.columns:
+        problems.append(Problem(message="Cannot provide both isic_id and filename columns."))
         return problems
+    elif "isic_id" not in df.columns and "filename" not in df.columns:
+        problems.append(Problem(message="Must provide either isic_id or filename column."))
+        return problems
+    else:
+        if "isic_id" in df.columns:
+            lookup: Lookup = Lookup("isic_id", "isic_id", "image__isic_id__in")
+        else:
+            lookup: Lookup = Lookup("filename", "original_blob_name", "original_blob_name__in")
 
-    duplicate_filenames = df[df["filename"].duplicated()].filename.values
-    if duplicate_filenames.size:
+    duplicate_rows = df[df[lookup.field].duplicated()][lookup.field].values
+    if duplicate_rows.size:
         problems.append(
-            Problem(message="Duplicate filenames found.", context=list(duplicate_filenames))
+            Problem(message=f"Duplicate {lookup.field}s found.", context=list(duplicate_rows))
         )
 
     matching_accessions = Accession.objects.filter(
-        cohort=cohort, original_blob_name__in=df["filename"]
-    ).values_list("original_blob_name", "metadata")
+        **{"cohort": cohort, lookup.query_expr: df[lookup.field].values}
+    ).values_list(lookup.db_field, flat=True)
 
-    existing_df = pd.DataFrame((x[0] for x in matching_accessions), columns=["filename"])
-    unknown_images = set(df.filename.values) - set(existing_df.filename.values)
+    existing_df = pd.DataFrame([x for x in matching_accessions], columns=[lookup.field])
+    unknown_images = set(df[lookup.field].values) - set(existing_df[lookup.field].values)
     if unknown_images:
         problems.append(
             Problem(

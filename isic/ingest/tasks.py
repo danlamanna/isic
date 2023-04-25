@@ -84,7 +84,9 @@ def process_distinctness_measure_task(accession_pk: int):
 
 
 @shared_task(soft_time_limit=1800, time_limit=1860)
-def update_metadata_task(user_pk: int, metadata_file_pk: int):
+def update_metadata_task(
+    user_pk: int, metadata_file_pk: int, ignore_image_check: bool = False, reset_review: bool = True
+):
     metadata_file = MetadataFile.objects.get(pk=metadata_file_pk)
     user = User.objects.get(pk=user_pk)
 
@@ -92,13 +94,19 @@ def update_metadata_task(user_pk: int, metadata_file_pk: int):
         # TODO: consider chunking in the future since large CSVs generate a lot of
         # database traffic.
         for _, row in metadata_file.to_df().iterrows():
+            identifier = "filename" if "filename" in row else "isic_id"
+            lookup_field = "original_blob_name" if "filename" in row else "image__isic_id"
             accession = Accession.objects.get(
-                original_blob_name=row["filename"], cohort=metadata_file.cohort
+                **{
+                    "cohort": metadata_file.cohort,
+                    lookup_field: row[identifier],
+                }
             )
-            # filename doesn't need to be stored in the metadata since it's equal to
-            # original_blob_name
-            del row["filename"]
-            accession.update_metadata(user, row)
+            # identifier shouldn't be stored in metadata
+            del row[identifier]
+            accession.update_metadata(
+                user, row, ignore_image_check=ignore_image_check, reset_review=reset_review
+            )
 
 
 @shared_task(soft_time_limit=3600, time_limit=3660)
