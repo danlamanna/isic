@@ -4,7 +4,7 @@ import pytest
 from pytest_factoryboy import register
 from rest_framework.test import APIClient
 
-from isic.core.tests.factories import CollectionFactory, ImageFactory
+from isic.core.tests.factories import CollectionFactory, ImageFactory, IsicIdFactory
 from isic.ingest.tests.factories import (
     AccessionFactory,
     AccessionReviewFactory,
@@ -100,6 +100,7 @@ register(MetadataFileFactory)
 register(ZipUploadFactory)
 
 # core factories
+register(IsicIdFactory)
 register(ImageFactory)
 register(CollectionFactory)
 
