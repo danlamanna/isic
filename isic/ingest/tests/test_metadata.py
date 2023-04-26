@@ -66,38 +66,6 @@ def cohort_with_accession(cohort, accession_factory):
     return cohort
 
 
-@pytest.mark.parametrize(
-    "accession_,valid_csv_stream",
-    [
-        [lazy_fixture("imageful_accession"), lazy_fixture("csv_stream_with_isic_id_valid")],
-        [lazy_fixture("imageful_accession"), lazy_fixture("csv_stream_with_filename_valid")],
-        [lazy_fixture("imageless_accession"), lazy_fixture("csv_stream_with_filename_valid")],
-    ],
-)
-@pytest.mark.django_db
-def test_validate_and_apply_metadata(
-    staff_client, accession_, valid_csv_stream, cohort, user, metadata_file_factory
-):
-    valid_metadatafile = metadata_file_factory(
-        blob__from_func=lambda: valid_csv_stream, cohort=cohort
-    )
-    r = staff_client.post(
-        reverse("validate-metadata", args=[accession_.cohort.pk]),
-        {"metadata_file": valid_metadatafile.pk},
-    )
-    assert r.status_code == 200, r.status_code
-    assert not r.context["form"].errors, r.context["form"].errors
-
-    update_metadata_task(user.pk, valid_metadatafile.pk, ignore_image_check=True)
-    accession_.refresh_from_db()
-    assert accession_.metadata == {"benign_malignant": "benign"}
-    assert accession_.unstructured_metadata == {"foo": "bar"}
-    assert accession_.metadata_versions.count() == 1
-    version = accession_.metadata_versions.first()
-    assert version.metadata == {"benign_malignant": "benign"}
-    assert version.unstructured_metadata == {"foo": "bar"}
-
-
 @pytest.fixture
 def metadatafile_without_filename_column(
     cohort, metadata_file_factory, csv_stream_without_filename_column
@@ -133,7 +101,7 @@ def test_validate_metadata_step1_has_duplicate_filenames(metadatafile_duplicate_
 
 
 @pytest.mark.django_db
-def test_apply_metadata_step2(
+def test_validate_metadata_step2(
     staff_client, cohort_with_accession, csv_stream_diagnosis_sex, metadata_file_factory
 ):
     metadatafile = metadata_file_factory(
@@ -149,7 +117,7 @@ def test_apply_metadata_step2(
 
 
 @pytest.mark.django_db
-def test_apply_metadata_step2_invalid(
+def test_validate_metadata_step2_invalid(
     staff_client, cohort_with_accession, csv_stream_diagnosis_sex_invalid, metadata_file_factory
 ):
     metadatafile = metadata_file_factory(
@@ -170,7 +138,7 @@ def test_apply_metadata_step2_invalid(
 
 
 @pytest.mark.django_db
-def test_apply_metadata_step3(
+def test_validate_metadata_step3(
     user,
     staff_client,
     cohort_with_accession,
@@ -207,6 +175,38 @@ def test_apply_metadata_step3(
     assert r.context["checkpoint"][2]["problems"] == {}
     assert r.context["checkpoint"][3]["problems"]
     assert list(r.context["checkpoint"][3]["problems"].items())[0][0][0] == "diagnosis"
+
+
+@pytest.mark.parametrize(
+    "accession_,valid_csv_stream",
+    [
+        [lazy_fixture("imageful_accession"), lazy_fixture("csv_stream_with_isic_id_valid")],
+        [lazy_fixture("imageful_accession"), lazy_fixture("csv_stream_with_filename_valid")],
+        [lazy_fixture("imageless_accession"), lazy_fixture("csv_stream_with_filename_valid")],
+    ],
+)
+@pytest.mark.django_db
+def test_validate_and_apply_metadata(
+    staff_client, accession_, valid_csv_stream, cohort, user, metadata_file_factory
+):
+    valid_metadatafile = metadata_file_factory(
+        blob__from_func=lambda: valid_csv_stream, cohort=cohort
+    )
+    r = staff_client.post(
+        reverse("validate-metadata", args=[accession_.cohort.pk]),
+        {"metadata_file": valid_metadatafile.pk},
+    )
+    assert r.status_code == 200, r.status_code
+    assert not r.context["form"].errors, r.context["form"].errors
+
+    update_metadata_task(user.pk, valid_metadatafile.pk, ignore_image_check=True)
+    accession_.refresh_from_db()
+    assert accession_.metadata == {"benign_malignant": "benign"}
+    assert accession_.unstructured_metadata == {"foo": "bar"}
+    assert accession_.metadata_versions.count() == 1
+    version = accession_.metadata_versions.first()
+    assert version.metadata == {"benign_malignant": "benign"}
+    assert version.unstructured_metadata == {"foo": "bar"}
 
 
 @pytest.mark.django_db
