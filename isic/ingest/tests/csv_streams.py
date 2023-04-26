@@ -11,11 +11,19 @@ data_dir = pathlib.Path(__file__).parent / "data"
 StreamWriter = codecs.getwriter("utf-8")
 
 
-def csv_stream_valid() -> BinaryIO:
+def csv_stream_with_filename_valid() -> BinaryIO:
     file_stream = StreamWriter(io.BytesIO())
     writer = csv.DictWriter(file_stream, fieldnames=["filename", "benign_malignant", "foo"])
     writer.writeheader()
     writer.writerow({"filename": "filename.jpg", "benign_malignant": "benign", "foo": "bar"})
+    return file_stream
+
+
+def csv_stream_with_isic_id_valid() -> BinaryIO:
+    file_stream = StreamWriter(io.BytesIO())
+    writer = csv.DictWriter(file_stream, fieldnames=["isic_id", "benign_malignant", "foo"])
+    writer.writeheader()
+    writer.writerow({"isic_id": "ISIC_1234567", "benign_malignant": "benign", "foo": "bar"})
     return file_stream
 
 

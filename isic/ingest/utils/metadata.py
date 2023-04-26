@@ -22,8 +22,10 @@ class Problem(BaseModel):
     type: str | None = "error"
 
 
-# represent a way of accessing a field in a dataframe that maps to a field in the database
-Lookup = namedtuple("Lookup", ["field", "db_field", "query_expr"])
+# this provides structure for mapping a row in a csv (or column in a dataframe) to a
+# field in the database, and the query expression to use when looking up the value.
+# csv_field, db_lookup_field, db_bulk_lookup_expr
+IdentifierMap = namedtuple("IdentifierMap", ["field", "db_lookup", "db_lookup_bulk"])
 
 
 def validate_csv_format_and_filenames(df, cohort):
@@ -39,22 +41,26 @@ def validate_csv_format_and_filenames(df, cohort):
         return problems
     else:
         if "isic_id" in df.columns:
-            lookup: Lookup = Lookup("isic_id", "isic_id", "image__isic_id__in")
+            identifier: IdentifierMap = IdentifierMap(
+                "isic_id", "image__isic_id", "image__isic_id__in"
+            )
         else:
-            lookup: Lookup = Lookup("filename", "original_blob_name", "original_blob_name__in")
+            identifier: IdentifierMap = IdentifierMap(
+                "filename", "original_blob_name", "original_blob_name__in"
+            )
 
-    duplicate_rows = df[df[lookup.field].duplicated()][lookup.field].values
+    duplicate_rows = df[df[identifier.field].duplicated()][identifier.field].values
     if duplicate_rows.size:
         problems.append(
-            Problem(message=f"Duplicate {lookup.field}s found.", context=list(duplicate_rows))
+            Problem(message=f"Duplicate {identifier.field}s found.", context=list(duplicate_rows))
         )
 
     matching_accessions = Accession.objects.filter(
-        **{"cohort": cohort, lookup.query_expr: df[lookup.field].values}
-    ).values_list(lookup.db_field, flat=True)
+        **{"cohort": cohort, identifier.db_lookup_bulk: df[identifier.field].values}
+    ).values_list(identifier.db_lookup, flat=True)
 
-    existing_df = pd.DataFrame([x for x in matching_accessions], columns=[lookup.field])
-    unknown_images = set(df[lookup.field].values) - set(existing_df[lookup.field].values)
+    existing_df = pd.DataFrame([x for x in matching_accessions], columns=[identifier.field])
+    unknown_images = set(df[identifier.field].values) - set(existing_df[identifier.field].values)
     if unknown_images:
         problems.append(
             Problem(
@@ -84,16 +90,25 @@ def validate_internal_consistency(df):
 
 
 def validate_archive_consistency(df, cohort):
+    # it's okay to assume that these are the only two possibilities since df has already
+    # passed validate_csv_format_and_filenames.
+    if "isic_id" in df.columns:
+        identifier: IdentifierMap = IdentifierMap("isic_id", "image__isic_id", "image__isic_id__in")
+    else:
+        identifier: IdentifierMap = IdentifierMap(
+            "filename", "original_blob_name", "original_blob_name__in"
+        )
+
     # keyed by column, message
     column_problems: dict[tuple[str, str], list[int]] = defaultdict(list)
     accessions = Accession.objects.filter(
-        cohort=cohort, original_blob_name__in=df["filename"]
-    ).values_list("original_blob_name", "metadata")
+        **{"cohort": cohort, identifier.db_lookup_bulk: df[identifier.field].values}
+    ).values_list(identifier.db_lookup, "metadata")
     # TODO: easier way to do this?
     accessions_dict = {x[0]: x[1] for x in accessions}
 
     for i, (_, row) in enumerate(df.iterrows(), start=2):
-        existing = accessions_dict[row["filename"]]
+        existing = accessions_dict[row[identifier.field]]
         row = existing | {k: v for k, v in row.items() if v is not None}
 
         try:

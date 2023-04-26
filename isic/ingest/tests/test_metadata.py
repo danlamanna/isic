@@ -5,6 +5,7 @@ from typing import BinaryIO
 from django.urls.base import reverse
 from django.utils import timezone
 import pytest
+from pytest_lazyfixture import lazy_fixture
 
 from isic.ingest.services.accession.review import accession_review_update_or_create
 from isic.ingest.tasks import update_metadata_task
@@ -13,13 +14,23 @@ from isic.ingest.utils.metadata import validate_csv_format_and_filenames
 
 
 @pytest.fixture
-def valid_metadatafile(cohort, metadata_file_factory, csv_stream_valid):
-    return metadata_file_factory(blob__from_func=lambda: csv_stream_valid, cohort=cohort)
+def valid_metadatafile(cohort, metadata_file_factory, valid_csv_stream):
+    return metadata_file_factory(blob__from_func=lambda: valid_csv_stream, cohort=cohort)
 
 
 @pytest.fixture
-def imageless_accession(accession_factory):
-    return accession_factory(image=None)
+def imageless_accession(accession_factory, cohort):
+    return accession_factory(cohort=cohort, original_blob_name="filename.jpg", image=None)
+
+
+@pytest.fixture
+def imageful_accession(image_factory, cohort):
+    image = image_factory(
+        accession__cohort=cohort,
+        accession__original_blob_name="filename.jpg",
+        isic_id__id="ISIC_1234567",
+    )
+    return image.accession
 
 
 @pytest.fixture
@@ -55,15 +66,34 @@ def cohort_with_accession(cohort, accession_factory):
     return cohort
 
 
+@pytest.mark.parametrize(
+    "accession_,valid_csv_stream",
+    [
+        [lazy_fixture("imageful_accession"), lazy_fixture("csv_stream_with_isic_id_valid")],
+        [lazy_fixture("imageful_accession"), lazy_fixture("csv_stream_with_filename_valid")],
+        [lazy_fixture("imageless_accession"), lazy_fixture("csv_stream_with_filename_valid")],
+    ],
+)
 @pytest.mark.django_db
-def test_apply_metadata(accession_factory, valid_metadatafile, cohort, user):
-    accession = accession_factory(cohort=cohort, original_blob_name="filename.jpg")
-    update_metadata_task(user.pk, valid_metadatafile.pk)
-    accession.refresh_from_db()
-    assert accession.metadata == {"benign_malignant": "benign"}
-    assert accession.unstructured_metadata == {"foo": "bar"}
-    assert accession.metadata_versions.count() == 1
-    version = accession.metadata_versions.first()
+def test_validate_and_apply_metadata(
+    staff_client, accession_, valid_csv_stream, cohort, user, metadata_file_factory
+):
+    valid_metadatafile = metadata_file_factory(
+        blob__from_func=lambda: valid_csv_stream, cohort=cohort
+    )
+    r = staff_client.post(
+        reverse("validate-metadata", args=[accession_.cohort.pk]),
+        {"metadata_file": valid_metadatafile.pk},
+    )
+    assert r.status_code == 200, r.status_code
+    assert not r.context["form"].errors, r.context["form"].errors
+
+    update_metadata_task(user.pk, valid_metadatafile.pk, ignore_image_check=True)
+    accession_.refresh_from_db()
+    assert accession_.metadata == {"benign_malignant": "benign"}
+    assert accession_.unstructured_metadata == {"foo": "bar"}
+    assert accession_.metadata_versions.count() == 1
+    version = accession_.metadata_versions.first()
     assert version.metadata == {"benign_malignant": "benign"}
     assert version.unstructured_metadata == {"foo": "bar"}
 
@@ -85,12 +115,12 @@ def metadatafile_duplicate_filenames(cohort, metadata_file_factory, csv_stream_d
 
 
 @pytest.mark.django_db
-def test_validate_metadata_step1_requires_filename_column(metadatafile_without_filename_column):
+def test_validate_metadata_step1_requires_identifier_column(metadatafile_without_filename_column):
     problems = validate_csv_format_and_filenames(
         metadatafile_without_filename_column.to_df(), metadatafile_without_filename_column.cohort
     )
     assert len(problems) == 1
-    assert "Unable to find a filename column" in problems[0].message
+    assert "Must provide either isic_id or filename column" in problems[0].message
 
 
 @pytest.mark.django_db
