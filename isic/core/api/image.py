@@ -7,11 +7,11 @@ from django.template.loader import render_to_string
 from isic_metadata import FIELD_REGISTRY
 from ninja import Field, ModelSchema, Query, Router, Schema
 from ninja.pagination import paginate
+from ninja_cursor_pagination import CursorPagination
 from pyparsing.exceptions import ParseException
 
 from isic.core.dsl import es_parser, parse_query
 from isic.core.models import Collection, Image
-from isic.core.pagination import CursorPagination
 from isic.core.permissions import get_visible_objects
 from isic.core.search import build_elasticsearch_query, facets
 from isic.core.serializers import SearchQueryIn

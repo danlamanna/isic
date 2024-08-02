@@ -6,12 +6,12 @@ from django.http.request import HttpRequest
 from django.shortcuts import get_object_or_404
 from ninja import Field, ModelSchema, Router, Schema
 from ninja.pagination import paginate
+from ninja_cursor_pagination import CursorPagination
 from pydantic import field_validator
 from s3_file_field.widgets import S3PlaceholderFile
 
 from isic.auth import is_authenticated, is_staff
 from isic.core.api.image import ImageOut
-from isic.core.pagination import CursorPagination
 from isic.core.permissions import get_visible_objects
 from isic.ingest.models import Accession, Cohort, Contributor, Lesion, MetadataFile
 from isic.ingest.services.accession import accession_create
@@ -68,8 +68,9 @@ def lesion_list(request: HttpRequest):
         .prefetch_related("accessions__image", "accessions__cohort")
         .order_by("id"),
     )
-    # the count can be done much more efficiently than the full query
-    qs.custom_count = get_visible_objects(
+    # the count can be done much more efficiently than the full query, monkey patch
+    # the count method to trick the paginator that calls it.
+    qs.count = lambda: get_visible_objects(
         request.user, "ingest.view_lesion", Lesion.objects.has_images()
     ).count()
     return qs

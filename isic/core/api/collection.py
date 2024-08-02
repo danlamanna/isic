@@ -6,12 +6,12 @@ from django.http.response import JsonResponse
 from django.shortcuts import get_object_or_404
 from ninja import Field, ModelSchema, Router, Schema
 from ninja.pagination import paginate
+from ninja_cursor_pagination import CursorPagination
 from pydantic.types import conlist, constr
 
 from isic.core.constants import ISIC_ID_REGEX
 from isic.core.models.base import CopyrightLicense
 from isic.core.models.collection import Collection
-from isic.core.pagination import CursorPagination
 from isic.core.permissions import get_visible_objects
 from isic.core.serializers import SearchQueryIn
 from isic.core.services.collection.image import (

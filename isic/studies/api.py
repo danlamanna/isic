@@ -2,9 +2,9 @@ from django.http.request import HttpRequest
 from django.shortcuts import get_object_or_404
 from ninja import Field, ModelSchema, Router
 from ninja.pagination import paginate
+from ninja_cursor_pagination import CursorPagination
 
 from isic.auth import is_staff
-from isic.core.pagination import CursorPagination
 from isic.studies.models import Annotation, Feature, Question, QuestionChoice, Study, StudyTask
 
 annotation_router = Router()
