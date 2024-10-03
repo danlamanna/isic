@@ -59,6 +59,7 @@ def share_collection_with_users_task(collection_pk: int, grantor_pk: int, user_p
     retry_kwargs={"max_retries": 15},
 )
 def sync_elasticsearch_index_task():
+    return
     bulk_add_to_search_index(Image.objects.with_elasticsearch_properties())
 
 
